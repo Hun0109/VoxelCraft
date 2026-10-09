@@ -13,8 +13,8 @@ class PlayerController {
     this.position = new THREE.Vector3(0.5, 8.0, 0.5);
     this.velocity = new THREE.Vector3(0, 0, 0);
     this.isGrounded = false;
-    this.moveSpeed = 6.5;
-    this.jumpForce = 8.8;
+    this.moveSpeed = 6.0;
+    this.jumpForce = 8.5;
     this.gravity = 24.0;
     
     // Camera rotation (Euler yaw & pitch)
@@ -75,7 +75,6 @@ class PlayerController {
 
     document.addEventListener('pointerlockerror', (err) => {
       console.warn('PointerLock permission/restriction notice:', err);
-      // Ensure player can continue even if browser restricts pointer lock
       if (this.isPlaying && blocker) {
         blocker.style.display = 'none';
       }
@@ -194,8 +193,10 @@ class PlayerController {
 
   resetToSpawn(world) {
     const groundY = world ? world.getHighestBlock(0, 0) : 4;
-    this.position.set(0.5, groundY + 2.8, 0.5);
+    // Eye is 1.8 above the top of the ground block (which is at groundY + 1)
+    this.position.set(0.5, groundY + 1 + 1.8, 0.5);
     this.velocity.set(0, 0, 0);
+    this.isGrounded = true;
     this.pitch = 0;
     this.yaw = 0;
   }
@@ -216,11 +217,11 @@ class PlayerController {
   }
 
   getBoundingBox() {
-    const halfWidth = 0.32;
+    const halfWidth = 0.28;
     const height = 1.8;
     return new THREE.Box3(
-      new THREE.Vector3(this.position.x - halfWidth, this.position.y - height, this.position.z - halfWidth),
-      new THREE.Vector3(this.position.x + halfWidth, this.position.y, this.position.z + halfWidth)
+      new THREE.Vector3(this.position.x - halfWidth, this.position.y - height + 0.05, this.position.z - halfWidth),
+      new THREE.Vector3(this.position.x + halfWidth, this.position.y - 0.05, this.position.z + halfWidth)
     );
   }
 
@@ -283,47 +284,132 @@ class PlayerController {
   }
 
   moveWithCollision(dt, world) {
-    // X Axis
-    this.position.x += this.velocity.x * dt;
-    let box = this.getBoundingBox();
-    if (world.checkCollision(box)) {
-      this.position.x -= this.velocity.x * dt;
-      this.velocity.x = 0;
-    }
+    const hw = 0.28; // Player half-width
+    const h = 1.8;   // Player total height
 
-    // Z Axis
-    this.position.z += this.velocity.z * dt;
-    box = this.getBoundingBox();
-    if (world.checkCollision(box)) {
-      this.position.z -= this.velocity.z * dt;
-      this.velocity.z = 0;
-    }
-
-    // Y Axis (Vertical)
-    this.position.y += this.velocity.y * dt;
-    box = this.getBoundingBox();
-    if (world.checkCollision(box)) {
-      if (this.velocity.y < 0) {
-        // Landed on ground
-        this.position.y -= this.velocity.y * dt;
-        const feetY = this.position.y - 1.8;
-        const blockY = Math.floor(feetY);
-        this.position.y = blockY + 1 + 1.8 + 0.001;
-        this.velocity.y = 0;
-        this.isGrounded = true;
-      } else {
-        // Hit ceiling
-        this.position.y -= this.velocity.y * dt;
-        this.velocity.y = 0;
+    // 1. HORIZONTAL MOVEMENT: X Axis
+    const dx = this.velocity.x * dt;
+    if (dx !== 0) {
+      this.position.x += dx;
+      if (this.collidesWithWorld(world, this.position.x, this.position.y, this.position.z, hw, h)) {
+        this.position.x -= dx;
+        this.velocity.x = 0;
       }
-    } else {
-      this.isGrounded = false;
     }
+
+    // 2. HORIZONTAL MOVEMENT: Z Axis
+    const dz = this.velocity.z * dt;
+    if (dz !== 0) {
+      this.position.z += dz;
+      if (this.collidesWithWorld(world, this.position.x, this.position.y, this.position.z, hw, h)) {
+        this.position.z -= dz;
+        this.velocity.z = 0;
+      }
+    }
+
+    // 3. VERTICAL MOVEMENT: Y Axis
+    const dy = this.velocity.y * dt;
+    let groundedThisFrame = false;
+
+    if (dy < 0) {
+      // Falling down
+      const oldFeet = this.position.y - h;
+      const targetFeet = oldFeet + dy;
+
+      // Check ground floor height under player's footprint
+      const minBx = Math.floor(this.position.x - hw + 0.02);
+      const maxBx = Math.floor(this.position.x + hw - 0.02);
+      const minBz = Math.floor(this.position.z - hw + 0.02);
+      const maxBz = Math.floor(this.position.z + hw - 0.02);
+
+      let highestFloor = -Infinity;
+
+      for (let bx = minBx; bx <= maxBx; bx++) {
+        for (let bz = minBz; bz <= maxBz; bz++) {
+          const topCheck = Math.floor(oldFeet + 0.1);
+          const bottomCheck = Math.floor(targetFeet);
+          for (let by = topCheck; by >= bottomCheck; by--) {
+            if (world.getBlock(bx, by, bz) !== 0) {
+              const floorTop = by + 1; // Top of this block
+              if (floorTop > highestFloor) {
+                highestFloor = floorTop;
+              }
+              break; // Found highest block in this column
+            }
+          }
+        }
+      }
+
+      if (highestFloor !== -Infinity && targetFeet <= highestFloor) {
+        // Player lands smoothly on highestFloor
+        this.position.y = highestFloor + h;
+        this.velocity.y = 0;
+        groundedThisFrame = true;
+      } else {
+        this.position.y += dy;
+      }
+    } else if (dy > 0) {
+      // Jumping / moving up
+      const oldHead = this.position.y;
+      const targetHead = oldHead + dy;
+
+      const minBx = Math.floor(this.position.x - hw + 0.02);
+      const maxBx = Math.floor(this.position.x + hw - 0.02);
+      const minBz = Math.floor(this.position.z - hw + 0.02);
+      const maxBz = Math.floor(this.position.z + hw - 0.02);
+
+      let lowestCeiling = Infinity;
+
+      for (let bx = minBx; bx <= maxBx; bx++) {
+        for (let bz = minBz; bz <= maxBz; bz++) {
+          const bottomCheck = Math.floor(oldHead);
+          const topCheck = Math.floor(targetHead);
+          for (let by = bottomCheck; by <= topCheck; by++) {
+            if (world.getBlock(bx, by, bz) !== 0) {
+              if (by < lowestCeiling) {
+                lowestCeiling = by;
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      if (lowestCeiling !== Infinity && targetHead >= lowestCeiling) {
+        // Hit ceiling
+        this.position.y = lowestCeiling - 0.01;
+        this.velocity.y = 0;
+      } else {
+        this.position.y += dy;
+      }
+    }
+
+    this.isGrounded = groundedThisFrame;
 
     // Void fallback (fell off the world)
     if (this.position.y < -5) {
       this.resetToSpawn(world);
     }
+  }
+
+  collidesWithWorld(world, px, py, pz, hw, h) {
+    const minX = Math.floor(px - hw + 0.02);
+    const maxX = Math.floor(px + hw - 0.02);
+    const minY = Math.floor(py - h + 0.05); // slight epsilon above feet
+    const maxY = Math.floor(py - 0.05);     // slight epsilon below head
+    const minZ = Math.floor(pz - hw + 0.02);
+    const maxZ = Math.floor(pz + hw - 0.02);
+
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
+        for (let z = minZ; z <= maxZ; z++) {
+          if (world.getBlock(x, y, z) !== 0) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   // 3D Voxel Avatar for other players
