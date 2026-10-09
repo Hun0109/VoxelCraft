@@ -1,22 +1,25 @@
-// Player Controller: First-person camera, Physics, Block interaction & Other player avatars
+// Player Controller: First-person camera, Physics, Block interaction & Avatar sync
 class PlayerController {
   constructor(camera, scene, domElement) {
     this.camera = camera;
     this.scene = scene;
     this.domElement = domElement;
     
+    // Game & Lock State
+    this.isPlaying = false; // Whether in-game
+    this.isLocked = false;  // Whether pointer lock is active
+    
     // Physics & Movement
-    this.position = new THREE.Vector3(0, 10, 0);
+    this.position = new THREE.Vector3(0.5, 8.0, 0.5);
     this.velocity = new THREE.Vector3(0, 0, 0);
     this.isGrounded = false;
-    this.moveSpeed = 6.0;
-    this.jumpForce = 8.0;
-    this.gravity = 22.0;
+    this.moveSpeed = 6.5;
+    this.jumpForce = 8.8;
+    this.gravity = 24.0;
     
     // Camera rotation (Euler yaw & pitch)
     this.pitch = 0;
     this.yaw = 0;
-    this.isLocked = false;
     
     // Controls state
     this.keys = {};
@@ -31,50 +34,110 @@ class PlayerController {
 
   setupInputs() {
     const blocker = document.getElementById('blocker');
+    const btnStart = document.getElementById('btn-start-playing');
 
-    const requestLock = () => {
-      try {
-        const promise = this.domElement.requestPointerLock();
-        if (promise && promise.catch) {
-          promise.catch((err) => {
-            console.warn('PointerLock promise error:', err);
-            if (blocker) blocker.style.display = 'none';
-            this.isLocked = true;
-          });
-        }
-      } catch (err) {
-        console.warn('PointerLock error:', err);
-        if (blocker) blocker.style.display = 'none';
-        this.isLocked = true;
-      }
+    // Handler to dismiss blocker and start game
+    const triggerStart = (e) => {
+      if (e) e.stopPropagation();
+      this.startGameplay();
     };
 
     if (blocker) {
-      blocker.addEventListener('click', requestLock);
+      blocker.addEventListener('click', triggerStart);
     }
-    this.domElement.addEventListener('click', () => {
-      if (!this.isLocked) requestLock();
-    });
+    if (btnStart) {
+      btnStart.addEventListener('click', triggerStart);
+    }
 
-    document.addEventListener('pointerlockchange', () => {
-      this.isLocked = (document.pointerLockElement === this.domElement);
-      if (blocker) {
-        blocker.style.display = this.isLocked ? 'none' : 'flex';
+    // Canvas click: re-engage pointer lock if active
+    this.domElement.addEventListener('click', () => {
+      if (this.isPlaying && !this.isLocked) {
+        this.requestLock();
       }
     });
 
-    document.addEventListener('pointerlockerror', () => {
-      // Fallback if browser blocks pointerlock
-      if (blocker) blocker.style.display = 'none';
-      this.isLocked = true;
+    // Pointer Lock state listener
+    document.addEventListener('pointerlockchange', () => {
+      this.isLocked = (document.pointerLockElement === this.domElement);
+      if (blocker) {
+        if (this.isLocked) {
+          blocker.style.display = 'none';
+        } else if (this.isPlaying) {
+          // Exited via ESC - show pause menu
+          const title = document.getElementById('blocker-title');
+          const btn = document.getElementById('btn-start-playing');
+          if (title) title.innerText = '⏸ 일시 정지';
+          if (btn) btn.innerText = '▶ 게임 계속하기';
+          blocker.style.display = 'flex';
+        }
+      }
     });
 
-    // Mouse Look
+    document.addEventListener('pointerlockerror', (err) => {
+      console.warn('PointerLock permission/restriction notice:', err);
+      // Ensure player can continue even if browser restricts pointer lock
+      if (this.isPlaying && blocker) {
+        blocker.style.display = 'none';
+      }
+    });
+
+    // Mouse Drag Look Fallback & Click
+    let isMouseDown = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    window.addEventListener('mousedown', (e) => {
+      if (!this.isPlaying) return;
+      isMouseDown = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+
+      // Handle block break & place
+      if (this.currentTarget && (this.isLocked || e.target === this.domElement)) {
+        if (e.button === 0) {
+          // Left Click: Break Block
+          const target = this.currentTarget.breakTarget;
+          if (target && window.world) {
+            window.world.setBlock(target.x, target.y, target.z, 0, true);
+            if (window.sounds) window.sounds.playHit();
+          }
+        } else if (e.button === 2) {
+          // Right Click: Place Block
+          const target = this.currentTarget.placeTarget;
+          if (target && window.world) {
+            const playerBox = this.getBoundingBox();
+            const blockBox = new THREE.Box3(
+              new THREE.Vector3(target.x, target.y, target.z),
+              new THREE.Vector3(target.x + 1, target.y + 1, target.z + 1)
+            );
+            if (!playerBox.intersectsBox(blockBox)) {
+              window.world.setBlock(target.x, target.y, target.z, this.selectedBlock, true);
+              if (window.sounds) window.sounds.playItem();
+            }
+          }
+        }
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      isMouseDown = false;
+    });
+
     document.addEventListener('mousemove', (e) => {
-      if (!this.isLocked) return;
+      if (!this.isPlaying) return;
       const sens = 0.0022;
-      this.yaw -= e.movementX * sens;
-      this.pitch -= e.movementY * sens;
+
+      if (this.isLocked) {
+        this.yaw -= (e.movementX || 0) * sens;
+        this.pitch -= (e.movementY || 0) * sens;
+      } else if (isMouseDown && e.target === this.domElement) {
+        const dx = e.clientX - lastMouseX;
+        const dy = e.clientY - lastMouseY;
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+        this.yaw -= dx * sens;
+        this.pitch -= dy * sens;
+      }
       this.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch));
     });
 
@@ -94,6 +157,7 @@ class PlayerController {
 
     // Mouse Wheel Hotbar selection
     window.addEventListener('wheel', (e) => {
+      if (!this.isPlaying) return;
       if (e.deltaY > 0) {
         this.selectedBlock = (this.selectedBlock % 8) + 1;
       } else {
@@ -102,37 +166,38 @@ class PlayerController {
       this.updateHotbarUI();
     });
 
-    // Mouse Click Block Break & Place
-    window.addEventListener('mousedown', (e) => {
-      if (!this.isLocked || !this.currentTarget) return;
-
-      if (e.button === 0) {
-        // Left Click: Break Block
-        const target = this.currentTarget.breakTarget;
-        if (target) {
-          window.world.setBlock(target.x, target.y, target.z, 0, true);
-          if (window.sounds) window.sounds.playHit();
-        }
-      } else if (e.button === 2) {
-        // Right Click: Place Block
-        const target = this.currentTarget.placeTarget;
-        if (target) {
-          // Prevent placing inside player's body
-          const playerBox = this.getBoundingBox();
-          const blockBox = new THREE.Box3(
-            new THREE.Vector3(target.x, target.y, target.z),
-            new THREE.Vector3(target.x + 1, target.y + 1, target.z + 1)
-          );
-          if (!playerBox.intersectsBox(blockBox)) {
-            window.world.setBlock(target.x, target.y, target.z, this.selectedBlock, true);
-            if (window.sounds) window.sounds.playItem();
-          }
-        }
-      }
-    });
-
     // Prevent context menu on right click
     window.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  startGameplay() {
+    this.isPlaying = true;
+    const blocker = document.getElementById('blocker');
+    if (blocker) {
+      blocker.style.display = 'none';
+    }
+    this.requestLock();
+  }
+
+  requestLock() {
+    try {
+      const promise = this.domElement.requestPointerLock();
+      if (promise && promise.catch) {
+        promise.catch((err) => {
+          console.warn('PointerLock request catch:', err);
+        });
+      }
+    } catch (err) {
+      console.warn('PointerLock exception:', err);
+    }
+  }
+
+  resetToSpawn(world) {
+    const groundY = world ? world.getHighestBlock(0, 0) : 4;
+    this.position.set(0.5, groundY + 2.8, 0.5);
+    this.velocity.set(0, 0, 0);
+    this.pitch = 0;
+    this.yaw = 0;
   }
 
   selectHotbarSlot(index) {
@@ -151,7 +216,7 @@ class PlayerController {
   }
 
   getBoundingBox() {
-    const halfWidth = 0.35;
+    const halfWidth = 0.32;
     const height = 1.8;
     return new THREE.Box3(
       new THREE.Vector3(this.position.x - halfWidth, this.position.y - height, this.position.z - halfWidth),
@@ -160,9 +225,9 @@ class PlayerController {
   }
 
   update(dt, world) {
-    if (!this.isLocked) return;
+    if (!this.isPlaying) return;
 
-    // Camera rotation
+    // Apply Camera rotation
     this.camera.rotation.order = 'YXZ';
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch;
@@ -196,16 +261,16 @@ class PlayerController {
     // Apply Gravity
     this.velocity.y -= this.gravity * dt;
 
-    // Move & Simple AABB Collision
+    // Move & Collision
     this.moveWithCollision(dt, world);
 
-    // Apply Position to Camera (Eye height = 1.62)
+    // Apply Eye Position to Camera
     this.camera.position.copy(this.position);
 
-    // Raycast targeted block
+    // Raycast target block
     this.currentTarget = world.raycast(this.camera);
 
-    // Network Sync position (send to peers)
+    // Sync position over network
     if (window.network) {
       window.network.sendPlayerState({
         x: this.position.x,
@@ -239,9 +304,11 @@ class PlayerController {
     box = this.getBoundingBox();
     if (world.checkCollision(box)) {
       if (this.velocity.y < 0) {
-        // Landed on block
+        // Landed on ground
         this.position.y -= this.velocity.y * dt;
-        this.position.y = Math.floor(this.position.y - 1.8) + 1.8 + 1.001;
+        const feetY = this.position.y - 1.8;
+        const blockY = Math.floor(feetY);
+        this.position.y = blockY + 1 + 1.8 + 0.001;
         this.velocity.y = 0;
         this.isGrounded = true;
       } else {
@@ -254,9 +321,8 @@ class PlayerController {
     }
 
     // Void fallback (fell off the world)
-    if (this.position.y < -10) {
-      this.position.set(0, 15, 0);
-      this.velocity.set(0, 0, 0);
+    if (this.position.y < -5) {
+      this.resetToSpawn(world);
     }
   }
 
@@ -266,7 +332,7 @@ class PlayerController {
 
     // Head
     const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    const headMat = new THREE.MeshLambertMaterial({ color: 0xffdbac }); // Skin tone
+    const headMat = new THREE.MeshLambertMaterial({ color: 0xffdbac });
     const head = new THREE.Mesh(headGeo, headMat);
     head.position.y = 0.55;
     group.add(head);
@@ -290,7 +356,7 @@ class PlayerController {
 
     // Legs (Pants)
     const legGeo = new THREE.BoxGeometry(0.25, 0.7, 0.28);
-    const legMat = new THREE.MeshLambertMaterial({ color: 0x1e3a8a }); // Jeans blue
+    const legMat = new THREE.MeshLambertMaterial({ color: 0x1e3a8a });
     const leftLeg = new THREE.Mesh(legGeo, legMat);
     leftLeg.position.set(-0.14, -0.75, 0);
     const rightLeg = new THREE.Mesh(legGeo, legMat);
@@ -303,7 +369,7 @@ class PlayerController {
     canvas.width = 256;
     canvas.height = 64;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
     if (ctx.roundRect) {
       ctx.roundRect(10, 10, 236, 44, 10);
       ctx.fill();
@@ -334,7 +400,6 @@ class PlayerController {
       this.remotePlayers[peerId] = avatar;
     }
 
-    // Eye height offset: player camera is at eye level (y), body pivot is at waist
     avatar.position.set(state.x, state.y - 0.9, state.z);
     avatar.rotation.y = state.yaw;
   }

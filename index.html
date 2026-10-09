@@ -18,7 +18,7 @@
   <!-- Supabase JS Client -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=voxel_v1">
+  <link rel="stylesheet" href="css/style.css?v=voxel_v4">
 </head>
 <body>
   <!-- 3D Canvas Viewport -->
@@ -30,13 +30,16 @@
   <!-- Blocker (Click to Play Overlay) -->
   <div id="blocker" style="display: none;">
     <div class="instructions-box">
-      <h2>화면을 클릭하여 플레이</h2>
-      <p>
+      <h2 id="blocker-title">🎮 화면을 클릭하여 플레이</h2>
+      <p id="blocker-desc">
         <strong>W, A, S, D</strong> : 이동 / <strong>Space</strong> : 점프 / <strong>Shift</strong> : 달리기<br>
         <strong>좌클릭</strong> : 블록 파괴 / <strong>우클릭</strong> : 블록 설치<br>
         <strong>숫자키 1~8 (또는 휠)</strong> : 블록 변경 / <strong>T or Enter</strong> : 채팅<br>
-        <strong>ESC</strong> : 마우스 커서 해제
+        <strong>ESC</strong> : 일시 정지 및 마우스 커서 해제
       </p>
+      <button class="btn btn-primary" id="btn-start-playing" style="width: 100%; margin-top: 20px; font-size: 15px; padding: 12px;">
+        ▶ 게임 시작하기 (클릭)
+      </button>
     </div>
   </div>
 
@@ -130,10 +133,10 @@
   <script src="js/sound.js"></script>
   <script src="js/supabase-config.js"></script>
   <script src="js/auth.js"></script>
-  <script src="js/textures.js?v=voxel_v2"></script>
-  <script src="js/voxel-world.js?v=voxel_v2"></script>
-  <script src="js/player.js?v=voxel_v2"></script>
-  <script src="js/network.js?v=voxel_v2"></script>
-  <script src="js/main.js?v=voxel_v2"></script>
+  <script src="js/textures.js?v=voxel_v4"></script>
+  <script src="js/voxel-world.js?v=voxel_v4"></script>
+  <script src="js/player.js?v=voxel_v4"></script>
+  <script src="js/network.js?v=voxel_v4"></script>
+  <script src="js/main.js?v=voxel_v4"></script>
 </body>
 </html>

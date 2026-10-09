@@ -31,24 +31,24 @@ class App {
 
     // 1. Scene & Sky Fog
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x87ceeb); // Beautiful Minecraft sky blue
-    this.scene.fog = new THREE.FogExp2(0x87ceeb, 0.025);
+    this.scene.background = new THREE.Color(0x87ceeb); // Minecraft sky blue
+    this.scene.fog = new THREE.FogExp2(0x87ceeb, 0.022);
 
     // 2. Camera
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 150);
 
     // 3. Renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: false });
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     container.appendChild(this.renderer.domElement);
 
     // 4. Lighting (Sun & Ambient)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     this.scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    sunLight.position.set(25, 40, 20);
+    const sunLight = new THREE.DirectionalLight(0xffffff, 0.85);
+    sunLight.position.set(20, 35, 15);
     this.scene.add(sunLight);
 
     // 5. Voxel World
@@ -59,7 +59,7 @@ class App {
     this.player = new PlayerController(this.camera, this.scene, this.renderer.domElement);
     window.player = this.player;
 
-    // Resize Handler
+    // Window Resize Handler
     window.addEventListener('resize', () => {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
@@ -72,30 +72,54 @@ class App {
 
   setupUIEvents() {
     // Host Room
-    document.getElementById('btn-host-world').addEventListener('click', async () => {
+    const btnHost = document.getElementById('btn-host-world');
+    btnHost.addEventListener('click', async () => {
       if (window.sounds) window.sounds.init();
       const user = window.auth.currentUser || { nickname: '방장', color: '#3b82f6' };
       
+      btnHost.innerText = '🌍 월드 생성 중...';
+      btnHost.disabled = true;
+
+      // 1. Generate Terrain immediately
       this.world.generateTerrain();
-      const roomCode = await window.network.createRoom(user);
-      
-      document.getElementById('hud-room-code').innerText = roomCode;
+
+      // 2. Create P2P Room (with 3.5s timeout fallback to avoid blocking)
+      try {
+        const roomCode = await Promise.race([
+          window.network.createRoom(user),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3500))
+        ]);
+        document.getElementById('hud-room-code').innerText = roomCode;
+        this.showToast(`월드 [${roomCode}] 가 생성되었습니다!`, '🌍');
+      } catch (e) {
+        console.warn('Network room creation timed out, falling back to local host:', e);
+        const fallbackCode = window.network.generateRoomCode();
+        document.getElementById('hud-room-code').innerText = fallbackCode;
+        this.showToast(`월드 [${fallbackCode}] 가 준비되었습니다!`, '🌍');
+      }
+
       this.enterGame();
-      this.showToast(`월드 [${roomCode}] 가 생성되었습니다!`, '🌍');
+      btnHost.innerText = '🌍 새 멀티 월드 생성 (방장)';
+      btnHost.disabled = false;
     });
 
     // Join Room
-    document.getElementById('btn-join-world').addEventListener('click', () => {
+    const btnJoin = document.getElementById('btn-join-world');
+    btnJoin.addEventListener('click', async () => {
       if (window.sounds) window.sounds.init();
       const code = document.getElementById('input-join-code').value.trim();
       if (!code) {
         alert('참가할 4자리 월드 코드를 입력해주세요!');
         return;
       }
-      this.joinRoom(code);
+      btnJoin.innerText = '입장 중...';
+      btnJoin.disabled = true;
+      await this.joinRoom(code);
+      btnJoin.innerText = '입장';
+      btnJoin.disabled = false;
     });
 
-    // Solo Mode (No net)
+    // Solo Mode (Instant, zero network delay)
     document.getElementById('btn-solo-world').addEventListener('click', () => {
       if (window.sounds) window.sounds.init();
       this.world.generateTerrain();
@@ -126,7 +150,7 @@ class App {
         chatInput.value = '';
       }
       chatInput.blur();
-      this.renderer.domElement.requestPointerLock();
+      if (this.player) this.player.requestLock();
     };
 
     chatInput.addEventListener('keydown', (e) => {
@@ -172,7 +196,12 @@ class App {
     this.inGame = true;
     document.getElementById('lobby-view').style.display = 'none';
     document.getElementById('game-hud').style.display = 'block';
-    document.getElementById('blocker').style.display = 'flex';
+
+    // Immediately start gameplay & position player above ground
+    if (this.player && this.world) {
+      this.player.resetToSpawn(this.world);
+      this.player.startGameplay();
+    }
   }
 
   setupNetworkCallbacks() {
