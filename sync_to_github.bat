@@ -22,7 +22,7 @@ if %ERRORLEVEL% EQU 0 (
     echo  🎉 깃허브 웹(GitHub Pages) 동기화 완료!
     echo.
     echo  약 1분 뒤 온라인 웹사이트에 자동으로 적용됩니다:
-    echo  👉 https://hun0109.github.io/Boom_arena/
+    echo  👉 https://hun0109.github.io/VoxelCraft/
     echo ========================================================
 ) else (
     echo.
