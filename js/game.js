@@ -315,9 +315,12 @@ class GameEngine {
 
       const alivePlayers = this.players.filter((p) => p.alive);
       if (alivePlayers.length > 1) {
-        this.bombTimer -= dt;
-        if (this.bombTimer <= 4 && Math.floor(this.bombTimer * 4) % 2 === 0) {
-          if (window.sounds) window.sounds.playTick(4 - this.bombTimer);
+        // 무적/잠금 중에는 폭탄 타이머 일시 정지 (카운트다운 멈춤!)
+        if (this.bombTransferCooldown <= 0) {
+          this.bombTimer -= dt;
+          if (this.bombTimer <= 4 && Math.floor(this.bombTimer * 4) % 2 === 0) {
+            if (window.sounds) window.sounds.playTick(4 - this.bombTimer);
+          }
         }
 
         if (this.bombTimer <= 0) {
@@ -476,9 +479,9 @@ class GameEngine {
               target.hasBomb = true;
               this.currentBomberId = target.id;
               this.lastBomberId = source.id;
-              this.lastBomberImmunityTimer = 3.5; // 방금 넘긴 사람: 3.5초간 절대 면역!
-              this.bombTransferCooldown = 2.0;    // 전체 폭탄: 2.0초간 전달 잠금!
-              source.invincible = 3.5;            // 시각적 쉴드 3.5초
+              this.lastBomberImmunityTimer = 1.8; // 방금 넘긴 사람: 1.8초간 절대 면역!
+              this.bombTransferCooldown = 1.2;    // 전체 폭탄: 1.2초간 전달 잠금 & 타이머 정지!
+              source.invincible = 1.8;            // 시각적 쉴드 1.8초
 
               // 초강력 반발 넉백 (충돌 반대 방향으로 멀리 튕김)
               source.vx -= nx * 22;
@@ -486,8 +489,8 @@ class GameEngine {
               target.vx += nx * 22;
               target.vy += ny * 22;
 
-              this.addFloatingText(source.x, source.y - 30, '🛡️ 탈출! (3.5초 무적)', '#00ff88', 24);
-              this.addFloatingText(target.x, target.y - 30, '💣 폭탄 부착! (2초 잠금)', '#ff0055', 26);
+              this.addFloatingText(source.x, source.y - 30, '🛡️ 탈출! (1.8초 무적)', '#00ff88', 24);
+              this.addFloatingText(target.x, target.y - 30, '💣 폭탄 부착! (1.2초 멈춤)', '#ff0055', 26);
               if (window.sounds) window.sounds.playItem();
             }
           }
@@ -946,8 +949,13 @@ class GameEngine {
     const timerEl = document.getElementById('hud-timer-val');
     if (timerEl) {
       if (this.mode === 'bomb') {
-        timerEl.innerText = Math.max(0, this.bombTimer).toFixed(1) + 's';
-        timerEl.style.color = this.bombTimer < 5 ? '#ff0055' : '#00f2fe';
+        if (this.bombTransferCooldown > 0) {
+          timerEl.innerText = Math.max(0, this.bombTimer).toFixed(1) + 's (⏸️)';
+          timerEl.style.color = '#ffe600';
+        } else {
+          timerEl.innerText = Math.max(0, this.bombTimer).toFixed(1) + 's';
+          timerEl.style.color = this.bombTimer < 5 ? '#ff0055' : '#00f2fe';
+        }
       } else {
         timerEl.innerText = '링 축소 중!';
         timerEl.style.color = '#ffea00';
