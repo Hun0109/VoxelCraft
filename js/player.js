@@ -30,19 +30,43 @@ class PlayerController {
   }
 
   setupInputs() {
-    // Pointer Lock
-    this.domElement.addEventListener('click', () => {
-      if (!this.isLocked) {
-        this.domElement.requestPointerLock();
+    const blocker = document.getElementById('blocker');
+
+    const requestLock = () => {
+      try {
+        const promise = this.domElement.requestPointerLock();
+        if (promise && promise.catch) {
+          promise.catch((err) => {
+            console.warn('PointerLock promise error:', err);
+            if (blocker) blocker.style.display = 'none';
+            this.isLocked = true;
+          });
+        }
+      } catch (err) {
+        console.warn('PointerLock error:', err);
+        if (blocker) blocker.style.display = 'none';
+        this.isLocked = true;
       }
+    };
+
+    if (blocker) {
+      blocker.addEventListener('click', requestLock);
+    }
+    this.domElement.addEventListener('click', () => {
+      if (!this.isLocked) requestLock();
     });
 
     document.addEventListener('pointerlockchange', () => {
-      this.isLocked = document.pointerLockElement === this.domElement;
-      const blocker = document.getElementById('blocker');
+      this.isLocked = (document.pointerLockElement === this.domElement);
       if (blocker) {
         blocker.style.display = this.isLocked ? 'none' : 'flex';
       }
+    });
+
+    document.addEventListener('pointerlockerror', () => {
+      // Fallback if browser blocks pointerlock
+      if (blocker) blocker.style.display = 'none';
+      this.isLocked = true;
     });
 
     // Mouse Look
@@ -280,8 +304,12 @@ class PlayerController {
     canvas.height = 64;
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.roundRect(10, 10, 236, 44, 10);
-    ctx.fill();
+    if (ctx.roundRect) {
+      ctx.roundRect(10, 10, 236, 44, 10);
+      ctx.fill();
+    } else {
+      ctx.fillRect(10, 10, 236, 44);
+    }
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 24px Pretendard, sans-serif';
     ctx.textAlign = 'center';
