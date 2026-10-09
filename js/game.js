@@ -710,11 +710,11 @@ class GameEngine {
     }
 
     // Background Clear
-    ctx.fillStyle = '#0a0b12';
+    ctx.fillStyle = '#0d1117';
     ctx.fillRect(0, 0, 800, 600);
 
-    // Draw Grid
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+    // Draw Subtle Grid
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.025)';
     ctx.lineWidth = 1;
     for (let x = 0; x < 800; x += 40) {
       ctx.beginPath();
@@ -809,11 +809,9 @@ class GameEngine {
       // Outer Aura if has Bomb
       if (p.hasBomb) {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius + 8 + Math.sin(performance.now() * 0.015) * 4, 0, Math.PI * 2);
-        ctx.strokeStyle = '#ff0055';
-        ctx.lineWidth = 3;
-        ctx.shadowColor = '#ff0055';
-        ctx.shadowBlur = 20;
+        ctx.arc(p.x, p.y, p.radius + 6, 0, Math.PI * 2);
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 2.5;
         ctx.stroke();
       }
 
@@ -821,10 +819,8 @@ class GameEngine {
       if (p.invincible > 0) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius + 6, 0, Math.PI * 2);
-        ctx.strokeStyle = '#00ff88';
-        ctx.lineWidth = 3;
-        ctx.shadowColor = '#00ff88';
-        ctx.shadowBlur = 15;
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 2.5;
         ctx.stroke();
         if (Math.floor(performance.now() * 0.02) % 2 === 0) {
           ctx.globalAlpha = 0.7;
@@ -835,13 +831,10 @@ class GameEngine {
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
       ctx.fillStyle = p.color;
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 12;
       ctx.fill();
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1.5;
       ctx.stroke();
-      ctx.shadowBlur = 0;
 
       // Eyes looking towards velocity/facing
       const eyeOffset = 6;
