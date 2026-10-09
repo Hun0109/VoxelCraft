@@ -114,11 +114,11 @@ class AppManager {
       formRegister.style.display = 'block';
     });
 
-    formLogin.addEventListener('submit', (e) => {
+    formLogin.addEventListener('submit', async (e) => {
       e.preventDefault();
       const u = document.getElementById('login-id').value;
       const p = document.getElementById('login-pw').value;
-      const res = window.auth.login(u, p);
+      const res = await window.auth.login(u, p);
       if (res.success) {
         this.showToast(`${res.user.nickname} 님, 환영합니다!`, '👋');
         this.updateUserBadge();
@@ -128,12 +128,12 @@ class AppManager {
       }
     });
 
-    formRegister.addEventListener('submit', (e) => {
+    formRegister.addEventListener('submit', async (e) => {
       e.preventDefault();
       const u = document.getElementById('reg-id').value;
       const p = document.getElementById('reg-pw').value;
       const n = document.getElementById('reg-nick').value;
-      const res = window.auth.register(u, p, n);
+      const res = await window.auth.register(u, p, n);
       if (res.success) {
         this.showToast('회원가입이 완료되었습니다!', '🎉');
         this.updateUserBadge();

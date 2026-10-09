@@ -42,10 +42,11 @@
 브라우저에서 `index.html`을 바로 더블클릭하여 열거나, 로컬 웹서버를 실행합니다:
 
 ```bash
-# Python 내장 서버로 실행 (추천)
-py -m http.server 8080
+# Python 내장 서버로 실행 (포트 8888 사용)
+py -m http.server 8888
 ```
-브라우저에서 `http://localhost:8080` 접속!
+브라우저에서 `http://localhost:8888` 접속!
+*(또는 로컬 서버 없이 `index.html` 파일을 바로 더블클릭해서 실행해도 됩니다)*
 
 ---
 
