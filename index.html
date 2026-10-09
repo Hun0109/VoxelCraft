@@ -3,276 +3,137 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>BOOM ARENA (붐 아레나) - 4인 실시간 파티 배틀</title>
-  <!-- Pretendard Font -->
-  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
-  <!-- PeerJS for WebRTC Multiplayer -->
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <title>VoxelCraft 3D - 멀티플레이 샌드박스</title>
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+
+  <!-- Pretendard Font -->
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  
+  <!-- Three.js 3D Library -->
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <!-- PeerJS for WebRTC P2P Multiplayer -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <!-- Supabase JS Client -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-  <link rel="stylesheet" href="css/style.css?v=minimal_clean_v1">
+
+  <link rel="stylesheet" href="css/style.css?v=voxel_v1">
 </head>
 <body>
-  <!-- Header -->
-  <header>
-    <div class="logo-container">
-      <div class="logo-badge">💣</div>
-      <div class="logo-text">BOOM ARENA</div>
-    </div>
-    <div class="header-right">
-      <button id="btn-toggle-sound" class="icon-btn" title="사운드 켜기/끄기">🔊</button>
-      <div class="user-profile-badge" id="btn-open-auth">
-        <div class="avatar-preview-mini" id="header-user-avatar">🧢</div>
-        <div class="user-info-mini">
-          <span class="user-name-mini" id="header-user-name">게스트</span>
-          <span class="user-stats-mini" id="header-user-coins">🪙 100 코인</span>
-        </div>
-      </div>
-    </div>
-  </header>
+  <!-- 3D Canvas Viewport -->
+  <div id="canvas-container"></div>
 
-  <div id="app-container">
-    <!-- View 1: Main Home Menu -->
-    <section id="view-home" class="view active">
-      <div class="hero-banner">
-        <h1 class="hero-title">BOOM ARENA</h1>
-        <p class="hero-subtitle">링크 하나로 함께 즐기는 4인 실시간 파티 액션 게임</p>
-      </div>
+  <!-- Center Crosshair -->
+  <div id="crosshair"></div>
 
-      <div class="menu-cards-grid">
-        <!-- Card 1: Create Room -->
-        <div class="menu-card glass-panel" id="btn-host-room">
-          <div class="menu-card-icon">👑</div>
-          <h3>방 만들기</h3>
-          <p>새로운 배틀 방을 개설하고 친구들에게 초대 코드나 링크를 공유하세요.</p>
-          <button class="btn btn-primary" style="width: 100%;">호스트 생성</button>
-        </div>
-
-        <!-- Card 2: Join Room -->
-        <div class="menu-card glass-panel">
-          <div class="menu-card-icon">🚀</div>
-          <h3>방 참가하기</h3>
-          <p>친구가 보내준 4자리 초대 코드를 입력하여 전장에 즉시 난입하세요.</p>
-          <div class="join-input-group">
-            <input type="text" id="input-join-code" class="text-input" placeholder="코드 (예: 7K9P)" maxlength="6" style="text-transform: uppercase;">
-            <button class="btn btn-secondary" id="btn-join-room">입장</button>
-          </div>
-        </div>
-
-        <!-- Card 3: Solo Practice (Bots) -->
-        <div class="menu-card glass-panel" id="btn-solo-play">
-          <div class="menu-card-icon">🤖</div>
-          <h3>혼자 연습 (AI 봇 3인)</h3>
-          <p>친구를 기다리는 동안 스마트한 AI 봇 3명과 함께 손을 풀어보세요.</p>
-          <button class="btn btn-ghost" style="width: 100%;">빠른 연습 시작</button>
-        </div>
-
-        <!-- Card 4: Wardrobe / Customize -->
-        <div class="menu-card glass-panel" id="btn-open-customizer">
-          <div class="menu-card-icon">🎨</div>
-          <h3>캐릭터 옷장</h3>
-          <p>내 캐릭터의 네온 색상과 모자/악세사리를 취향껏 커스터마이징하세요.</p>
-          <button class="btn btn-accent" style="width: 100%;">스킨 변경</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- View 2: Room Lobby -->
-    <section id="view-lobby" class="view">
-      <div class="lobby-header">
-        <div>
-          <h2>대기실 로비</h2>
-          <span style="color: var(--text-muted); font-size: 14px;">모든 플레이어가 준비되면 방장이 게임을 시작합니다.</span>
-        </div>
-        <div style="display: flex; gap: 12px; align-items: center;">
-          <div class="room-code-badge">
-            <span>방 코드:</span>
-            <span id="lobby-room-code">----</span>
-          </div>
-          <button class="btn btn-primary" id="btn-copy-link">🔗 초대 링크 복사</button>
-          <button class="btn btn-ghost" id="btn-leave-lobby">나가기</button>
-        </div>
-      </div>
-
-      <div class="lobby-layout">
-        <!-- Left: 4 Players Slots -->
-        <div>
-          <div class="players-grid" id="players-slots-container">
-            <!-- Rendered dynamically -->
-          </div>
-
-          <!-- Game Mode Selector -->
-          <div class="glass-panel lobby-settings-panel">
-            <div class="settings-group">
-              <label class="settings-label">게임 모드 선택</label>
-              <div class="mode-selector">
-                <button class="mode-btn active" data-mode="bomb">💣 폭탄 돌리기 (Bomb Tag)</button>
-                <button class="mode-btn" data-mode="brawl">🥊 링아웃 난투 (Brawl Arena)</button>
-              </div>
-            </div>
-
-            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-              <button class="btn btn-primary" id="btn-start-game" style="font-size: 17px; padding: 14px 40px;">
-                🔥 게임 시작!
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Right: Lobby Chat -->
-        <div class="glass-panel chat-panel">
-          <div style="padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: 700; font-size: 14px;">
-            💬 대기실 채팅
-          </div>
-          <div class="chat-messages" id="chat-messages">
-            <div class="chat-msg system">[알림] 대기실에 오신 것을 환영합니다!</div>
-          </div>
-          <div class="chat-input-bar">
-            <input type="text" id="lobby-chat-input" class="text-input" placeholder="메시지를 입력하세요..." style="padding: 8px 12px; font-size: 13px;">
-            <button class="btn btn-primary" id="btn-send-chat" style="padding: 8px 16px; font-size: 13px;">전송</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- View 3: In-Game Canvas -->
-    <section id="view-game" class="view">
-      <div class="game-hud">
-        <div class="hud-scores" id="hud-scores-list">
-          <!-- Scores rendered -->
-        </div>
-        <div class="hud-timer">
-          <span>⏰</span>
-          <span id="hud-timer-val">15.0s</span>
-        </div>
-        <button class="btn btn-ghost" id="btn-exit-game" style="padding: 6px 14px; font-size: 13px;">로비로 나가기</button>
-      </div>
-
-      <div class="canvas-wrapper">
-        <canvas id="gameCanvas" width="800" height="600"></canvas>
-      </div>
-
-      <!-- Quick Emoji Bar -->
-      <div style="display: flex; gap: 10px; margin-top: 14px; justify-content: center; align-items: center;">
-        <span style="font-size: 12px; color: var(--text-muted);">단축키 (1~4):</span>
-        <button class="btn btn-ghost" style="padding: 6px 12px; font-size: 20px;" onclick="window.game.myInput.emoji='😂'">😂</button>
-        <button class="btn btn-ghost" style="padding: 6px 12px; font-size: 20px;" onclick="window.game.myInput.emoji='💣'">💣</button>
-        <button class="btn btn-ghost" style="padding: 6px 12px; font-size: 20px;" onclick="window.game.myInput.emoji='🔥'">🔥</button>
-        <button class="btn btn-ghost" style="padding: 6px 12px; font-size: 20px;" onclick="window.game.myInput.emoji='👑'">👑</button>
-      </div>
-
-      <div style="margin-top: 10px; font-size: 13px; color: var(--text-muted); text-align: center;">
-        조작법: <strong>WASD</strong> 또는 <strong>방향키</strong> 이동 / <strong>Spacebar</strong> 대시(밀치기)
-      </div>
-    </section>
-  </div>
-
-  <!-- Mobile Touch Controls (Shown only on small screens) -->
-  <div class="mobile-controls">
-    <div class="touch-stick-area" id="touch-stick-area">
-      <div class="touch-stick-knob" id="touch-stick-knob"></div>
-    </div>
-    <button class="touch-btn" id="touch-dash-btn">⚡</button>
-  </div>
-
-  <!-- Modal 1: Auth (Login / Register) -->
-  <div class="modal-overlay" id="modal-auth">
-    <div class="modal-box glass-panel">
-      <button class="modal-close-btn" id="btn-close-auth">&times;</button>
-      <div style="display: flex; gap: 12px; margin-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px;">
-        <button class="btn btn-ghost active" id="tab-login" style="flex: 1;">로그인</button>
-        <button class="btn btn-ghost" id="tab-register" style="flex: 1;">회원가입</button>
-      </div>
-
-      <!-- Form Login -->
-      <form id="form-login">
-        <div style="margin-bottom: 16px;">
-          <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 6px;">아이디</label>
-          <input type="text" id="login-id" class="text-input" placeholder="아이디를 입력하세요" required>
-        </div>
-        <div style="margin-bottom: 24px;">
-          <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 6px;">비밀번호</label>
-          <input type="password" id="login-pw" class="text-input" placeholder="비밀번호" required>
-        </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%;">로그인하기</button>
-      </form>
-
-      <!-- Form Register -->
-      <form id="form-register" style="display: none;">
-        <div style="margin-bottom: 14px;">
-          <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 6px;">아이디 (3자 이상)</label>
-          <input type="text" id="reg-id" class="text-input" placeholder="새 아이디" required>
-        </div>
-        <div style="margin-bottom: 14px;">
-          <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 6px;">닉네임</label>
-          <input type="text" id="reg-nick" class="text-input" placeholder="표시될 닉네임" required>
-        </div>
-        <div style="margin-bottom: 24px;">
-          <label style="font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 6px;">비밀번호 (4자 이상)</label>
-          <input type="password" id="reg-pw" class="text-input" placeholder="비밀번호" required>
-        </div>
-        <button type="submit" class="btn btn-secondary" style="width: 100%;">회원가입 완료</button>
-      </form>
+  <!-- Blocker (Click to Play Overlay) -->
+  <div id="blocker" style="display: none;">
+    <div class="instructions-box">
+      <h2>화면을 클릭하여 플레이</h2>
+      <p>
+        <strong>W, A, S, D</strong> : 이동 / <strong>Space</strong> : 점프 / <strong>Shift</strong> : 달리기<br>
+        <strong>좌클릭</strong> : 블록 파괴 / <strong>우클릭</strong> : 블록 설치<br>
+        <strong>숫자키 1~8 (또는 휠)</strong> : 블록 변경 / <strong>T or Enter</strong> : 채팅<br>
+        <strong>ESC</strong> : 마우스 커서 해제
+      </p>
     </div>
   </div>
 
-  <!-- Modal 2: Wardrobe / Character Customizer -->
-  <div class="modal-overlay" id="modal-customizer">
-    <div class="modal-box glass-panel">
-      <button class="modal-close-btn" id="btn-close-customizer">&times;</button>
-      <h3 style="margin-bottom: 20px; font-size: 20px;">🎨 내 캐릭터 꾸미기</h3>
-
-      <!-- Preview Avatar -->
-      <div style="display: flex; justify-content: center; margin-bottom: 24px;">
-        <div id="wardrobe-preview" style="width: 90px; height: 90px; border-radius: 50%; background: #00f2fe; display: flex; align-items: center; justify-content: center; font-size: 46px; box-shadow: 0 0 25px rgba(0,242,254,0.5); border: 3px solid white;">
-          🧢
-        </div>
+  <!-- In-game HUD -->
+  <div id="game-hud">
+    <!-- Top Bar -->
+    <div class="hud-top-bar">
+      <div class="hud-badge">
+        <span>월드 코드:</span>
+        <span id="hud-room-code" style="color: #60a5fa;">----</span>
       </div>
+      <div class="hud-badge" id="hud-players-count">👥 접속자: 1명</div>
+      <button class="btn btn-secondary" id="btn-copy-link" style="padding: 8px 14px; font-size: 13px;">🔗 링크 복사</button>
+      <button class="btn btn-ghost" onclick="window.location.reload()" style="padding: 8px 14px; font-size: 13px;">나가기</button>
+    </div>
 
-      <!-- Color Selection -->
-      <div style="margin-bottom: 20px;">
-        <label style="font-size: 14px; font-weight: 700; color: var(--text-muted);">네온 컬러</label>
-        <div class="color-picker-grid">
-          <div class="color-option selected" data-color="#00f2fe" style="background: #00f2fe;"></div>
-          <div class="color-option" data-color="#ff007f" style="background: #ff007f;"></div>
-          <div class="color-option" data-color="#ffe600" style="background: #ffe600;"></div>
-          <div class="color-option" data-color="#00ff88" style="background: #00ff88;"></div>
-          <div class="color-option" data-color="#b537f2" style="background: #b537f2;"></div>
-          <div class="color-option" data-color="#ff7b00" style="background: #ff7b00;"></div>
-        </div>
+    <!-- Hotbar -->
+    <div id="hotbar">
+      <div class="hotbar-slot active" data-block="1">
+        <span class="slot-num">1</span>
+        <span class="slot-icon">🌱</span>
       </div>
-
-      <!-- Hat / Accessory Selection -->
-      <div style="margin-bottom: 28px;">
-        <label style="font-size: 14px; font-weight: 700; color: var(--text-muted);">모자 & 악세사리</label>
-        <div class="hat-grid">
-          <div class="hat-option selected" data-hat="🧢">🧢</div>
-          <div class="hat-option" data-hat="👑">👑</div>
-          <div class="hat-option" data-hat="😎">😎</div>
-          <div class="hat-option" data-hat="😇">😇</div>
-          <div class="hat-option" data-hat="😈">😈</div>
-          <div class="hat-option" data-hat="🐱">🐱</div>
-          <div class="hat-option" data-hat="👽">👽</div>
-          <div class="hat-option" data-hat="🤠">🤠</div>
-        </div>
+      <div class="hotbar-slot" data-block="2">
+        <span class="slot-num">2</span>
+        <span class="slot-icon">🟫</span>
       </div>
+      <div class="hotbar-slot" data-block="3">
+        <span class="slot-num">3</span>
+        <span class="slot-icon">🪨</span>
+      </div>
+      <div class="hotbar-slot" data-block="4">
+        <span class="slot-num">4</span>
+        <span class="slot-icon">🪵</span>
+      </div>
+      <div class="hotbar-slot" data-block="5">
+        <span class="slot-num">5</span>
+        <span class="slot-icon">🍃</span>
+      </div>
+      <div class="hotbar-slot" data-block="6">
+        <span class="slot-num">6</span>
+        <span class="slot-icon">🧱</span>
+      </div>
+      <div class="hotbar-slot" data-block="7">
+        <span class="slot-num">7</span>
+        <span class="slot-icon">💎</span>
+      </div>
+      <div class="hotbar-slot" data-block="8">
+        <span class="slot-num">8</span>
+        <span class="slot-icon">🧊</span>
+      </div>
+    </div>
 
-      <button class="btn btn-primary" id="btn-save-custom" style="width: 100%;">저장하기</button>
+    <!-- Chat Overlay -->
+    <div id="chat-container">
+      <div id="chat-messages">
+        <div class="chat-message"><span class="sender">시스템:</span> <span class="text">[T] 키 또는 [Enter] 키를 눌러 채팅을 입력할 수 있습니다.</span></div>
+      </div>
+      <input type="text" id="chat-input" placeholder="메시지 입력 후 Enter..." maxlength="100">
+    </div>
+  </div>
+
+  <!-- Main Lobby View (Before Game Starts) -->
+  <div id="lobby-view">
+    <div class="lobby-modal">
+      <h1>VOXELCRAFT 3D</h1>
+      <p class="subtitle">웹 브라우저에서 친구와 함께 즐기는 3D 복셀 샌드박스</p>
+
+      <div class="lobby-actions">
+        <button class="btn btn-primary" id="btn-host-world" style="width: 100%;">
+          🌍 새 멀티 월드 생성 (방장)
+        </button>
+
+        <div class="join-row">
+          <input type="text" id="input-join-code" class="text-input" placeholder="4자리 코드 입력 (예: 7K9P)" maxlength="6" style="text-transform: uppercase;">
+          <button class="btn btn-secondary" id="btn-join-world">입장</button>
+        </div>
+
+        <div style="text-align: center; margin: 6px 0; color: var(--text-muted); font-size: 12px;">또는</div>
+
+        <button class="btn btn-ghost" id="btn-solo-world" style="width: 100%;">
+          🛠️ 혼자 건축하기 (솔로 모드)
+        </button>
+      </div>
     </div>
   </div>
 
   <!-- Toast Notification Container -->
   <div id="toast-container"></div>
 
-  <!-- Scripts -->
-  <script src="js/sound.js?v=5"></script>
-  <script src="js/supabase-config.js?v=5"></script>
-  <script src="js/auth.js?v=5"></script>
-  <script src="js/network.js?v=5"></script>
-  <script src="js/game.js?v=5"></script>
-  <script src="js/main.js?v=5"></script>
+  <!-- Core Scripts -->
+  <script src="js/sound.js"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/textures.js?v=voxel_v1"></script>
+  <script src="js/voxel-world.js?v=voxel_v1"></script>
+  <script src="js/player.js?v=voxel_v1"></script>
+  <script src="js/network.js?v=voxel_v1"></script>
+  <script src="js/main.js?v=voxel_v1"></script>
 </body>
 </html>

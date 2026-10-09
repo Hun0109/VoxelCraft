@@ -1,18 +1,18 @@
-// WebRTC P2P Network Engine powered by PeerJS
+// WebRTC P2P Multiplayer Engine for VoxelCraft
 class NetworkManager {
   constructor() {
     this.peer = null;
     this.isHost = false;
     this.roomId = null;
-    this.connections = {}; // Host: { peerId: DataConnection }
-    this.hostConnection = null; // Client: DataConnection to Host
-    this.players = []; // List of joined players
-    this.onPlayerListUpdate = null;
-    this.onChatMessage = null;
-    this.onGameStart = null;
-    this.onGameState = null;
-    this.onPlayerAction = null;
+    this.connections = {}; // Host: { peerId: conn }
+    this.hostConnection = null; // Client: conn to host
     this.myPeerId = null;
+    this.players = {}; // { peerId: { nickname, color } }
+    this.onBlockChanged = null;
+    this.onPlayerUpdated = null;
+    this.onPlayerLeft = null;
+    this.onChatMessage = null;
+    this.lastStateSent = 0;
   }
 
   generateRoomCode() {
@@ -24,18 +24,16 @@ class NetworkManager {
     return code;
   }
 
-  // Initialize Peer
   initPeer(customId = null) {
     return new Promise((resolve, reject) => {
       try {
-        const id = customId || 'boom-' + Math.random().toString(36).substring(2, 9);
+        const id = customId || 'voxel-' + Math.random().toString(36).substring(2, 9);
         this.peer = new Peer(id, {
           debug: 1,
           config: {
             iceServers: [
               { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' },
-              { urls: 'stun:stun2.l.google.com:19302' }
+              { urls: 'stun:stun1.l.google.com:19302' }
             ]
           }
         });
@@ -48,7 +46,6 @@ class NetworkManager {
         this.peer.on('error', (err) => {
           console.error('Peer error:', err);
           if (err.type === 'unavailable-id') {
-            // Retry with random id
             this.initPeer().then(resolve).catch(reject);
           } else {
             reject(err);
@@ -60,55 +57,35 @@ class NetworkManager {
     });
   }
 
-  // HOST: Create a Room
+  // HOST: Create World Room
   async createRoom(userProfile, requestedCode = null) {
     this.isHost = true;
     const roomCode = requestedCode || this.generateRoomCode();
-    const hostPeerId = `boom-room-${roomCode.toLowerCase()}`;
+    const hostPeerId = `voxel-world-${roomCode.toLowerCase()}`;
 
     try {
       await this.initPeer(hostPeerId);
     } catch (e) {
-      // If room id is taken, generate unique
       const fallbackCode = this.generateRoomCode();
-      await this.initPeer(`boom-room-${fallbackCode.toLowerCase()}`);
+      await this.initPeer(`voxel-world-${fallbackCode.toLowerCase()}`);
       this.roomId = fallbackCode;
     }
     this.roomId = roomCode;
 
-    // Self is player 0
-    this.players = [
-      {
-        id: this.myPeerId,
-        slot: 0,
-        nickname: userProfile.nickname,
-        color: userProfile.color,
-        hat: userProfile.hat,
-        isHost: true,
-        isBot: false,
-        ready: true,
-        score: 0
-      }
-    ];
+    this.players[this.myPeerId] = {
+      nickname: userProfile.nickname,
+      color: userProfile.color || '#3b82f6'
+    };
 
-    // Listen for incoming players
     this.peer.on('connection', (conn) => {
       this.handleIncomingConnection(conn);
     });
 
-    if (this.onPlayerListUpdate) this.onPlayerListUpdate(this.players);
+    this.updatePlayerCountBadge();
     return this.roomId;
   }
 
   handleIncomingConnection(conn) {
-    if (this.players.length >= 4) {
-      conn.on('open', () => {
-        conn.send({ type: 'ROOM_FULL' });
-        conn.close();
-      });
-      return;
-    }
-
     conn.on('open', () => {
       this.connections[conn.peer] = conn;
 
@@ -124,105 +101,69 @@ class NetworkManager {
 
   handleHostReceivedData(peerId, data) {
     if (data.type === 'JOIN_REQUEST') {
-      const availableSlot = [0, 1, 2, 3].find(
-        (s) => !this.players.some((p) => p.slot === s)
-      );
-
-      const newPlayer = {
-        id: peerId,
-        slot: availableSlot ?? this.players.length,
-        nickname: data.profile.nickname || `플레이어`,
-        color: data.profile.color || '#ff007f',
-        hat: data.profile.hat || '😎',
-        isHost: false,
-        isBot: false,
-        ready: true,
-        score: 0
+      this.players[peerId] = {
+        nickname: data.profile.nickname || '플레이어',
+        color: data.profile.color || '#10b981'
       };
 
-      this.players.push(newPlayer);
+      // 1. Send entire world block map to the newcomer
+      if (window.world) {
+        conn_send(this.connections[peerId], {
+          type: 'WORLD_DATA',
+          blocks: window.world.getAllBlocks(),
+          players: this.players
+        });
+      }
+
+      // 2. Broadcast join message
       this.broadcast({
-        type: 'PLAYER_LIST',
-        players: this.players,
-        message: `${newPlayer.nickname} 님이 입장하셨습니다!`
+        type: 'CHAT',
+        sender: '시스템',
+        text: `${this.players[peerId].nickname} 님이 월드에 입장하셨습니다!`
       });
-      if (this.onPlayerListUpdate) this.onPlayerListUpdate(this.players);
+      if (this.onChatMessage) {
+        this.onChatMessage('시스템', `${this.players[peerId].nickname} 님이 월드에 입장하셨습니다!`);
+      }
+      this.updatePlayerCountBadge();
+    } else if (data.type === 'BLOCK_CHANGE') {
+      // Apply block change to host world
+      if (window.world) {
+        window.world.setBlock(data.x, data.y, data.z, data.blockId, false);
+      }
+      // Broadcast to other clients
+      this.broadcast(data, peerId);
+    } else if (data.type === 'PLAYER_STATE') {
+      // Forward player position to all other peers
+      this.broadcast(data, peerId);
+      if (this.onPlayerUpdated && this.players[peerId]) {
+        this.onPlayerUpdated(peerId, data.state, this.players[peerId].nickname, this.players[peerId].color);
+      }
     } else if (data.type === 'CHAT') {
       this.broadcast(data);
       if (this.onChatMessage) this.onChatMessage(data.sender, data.text);
-    } else if (data.type === 'PLAYER_INPUT') {
-      if (this.onPlayerAction) {
-        this.onPlayerAction(peerId, data.input);
-      }
     }
   }
 
   handlePlayerDisconnect(peerId) {
-    const idx = this.players.findIndex((p) => p.id === peerId);
-    if (idx !== -1) {
-      const leftPlayer = this.players[idx];
-      this.players.splice(idx, 1);
+    const p = this.players[peerId];
+    if (p) {
+      delete this.players[peerId];
       delete this.connections[peerId];
       this.broadcast({
-        type: 'PLAYER_LIST',
-        players: this.players,
-        message: `${leftPlayer.nickname} 님이 퇴장하셨습니다.`
+        type: 'PLAYER_LEFT',
+        peerId
       });
-      if (this.onPlayerListUpdate) this.onPlayerListUpdate(this.players);
+      if (this.onPlayerLeft) this.onPlayerLeft(peerId);
+      if (this.onChatMessage) this.onChatMessage('시스템', `${p.nickname} 님이 퇴장하셨습니다.`);
+      this.updatePlayerCountBadge();
     }
   }
 
-  // Add an AI bot (Host only)
-  addBot(slot = null) {
-    if (!this.isHost || this.players.length >= 4) return false;
-    const botColors = ['#ff007f', '#ffe600', '#00ff88', '#b537f2'];
-    const botHats = ['🤖', '😈', '🐱', '👽', '🤠', '🎃'];
-    const botNames = ['알파봇', '네온봇', '스피드봇', '붐마스터', '질풍봇'];
-
-    const usedSlots = this.players.map((p) => p.slot);
-    const targetSlot = slot !== null ? slot : [0, 1, 2, 3].find((s) => !usedSlots.includes(s));
-    if (targetSlot === undefined) return false;
-
-    const botId = `bot-${Date.now()}-${Math.floor(Math.random() * 100)}`;
-    const botPlayer = {
-      id: botId,
-      slot: targetSlot,
-      nickname: botNames[targetSlot % botNames.length],
-      color: botColors[targetSlot % botColors.length],
-      hat: botHats[targetSlot % botHats.length],
-      isHost: false,
-      isBot: true,
-      ready: true,
-      score: 0
-    };
-
-    this.players.push(botPlayer);
-    this.broadcast({
-      type: 'PLAYER_LIST',
-      players: this.players
-    });
-    if (this.onPlayerListUpdate) this.onPlayerListUpdate(this.players);
-    return true;
-  }
-
-  removeBot(botId) {
-    if (!this.isHost) return;
-    const idx = this.players.findIndex((p) => p.id === botId && p.isBot);
-    if (idx !== -1) {
-      this.players.splice(idx, 1);
-      this.broadcast({
-        type: 'PLAYER_LIST',
-        players: this.players
-      });
-      if (this.onPlayerListUpdate) this.onPlayerListUpdate(this.players);
-    }
-  }
-
-  // CLIENT: Join an existing Room
+  // CLIENT: Join World Room
   async joinRoom(roomCode, userProfile) {
     this.isHost = false;
     this.roomId = roomCode.toUpperCase().trim();
-    const hostPeerId = `boom-room-${this.roomId.toLowerCase()}`;
+    const hostPeerId = `voxel-world-${this.roomId.toLowerCase()}`;
 
     await this.initPeer();
 
@@ -231,18 +172,17 @@ class NetworkManager {
       this.hostConnection = conn;
 
       const timeout = setTimeout(() => {
-        reject(new Error('방을 찾을 수 없거나 응답이 없습니다. 방 코드를 확인해주세요.'));
+        reject(new Error('월드를 찾을 수 없습니다. 방 코드를 확인해주세요.'));
       }, 7000);
 
       conn.on('open', () => {
         clearTimeout(timeout);
-        // Send join request
+        // Send join profile
         conn.send({
           type: 'JOIN_REQUEST',
           profile: {
             nickname: userProfile.nickname,
-            color: userProfile.color,
-            hat: userProfile.hat
+            color: userProfile.color
           }
         });
         resolve(this.roomId);
@@ -265,38 +205,61 @@ class NetworkManager {
   }
 
   handleClientReceivedData(data) {
-    if (data.type === 'PLAYER_LIST') {
-      this.players = data.players;
-      if (this.onPlayerListUpdate) this.onPlayerListUpdate(this.players);
-      if (data.message && this.onChatMessage) {
-        this.onChatMessage('시스템', data.message);
+    if (data.type === 'WORLD_DATA') {
+      // Load world from host
+      if (window.world) {
+        window.world.loadAllBlocks(data.blocks);
       }
+      this.players = data.players || {};
+      this.updatePlayerCountBadge();
+    } else if (data.type === 'BLOCK_CHANGE') {
+      if (window.world) {
+        window.world.setBlock(data.x, data.y, data.z, data.blockId, false);
+      }
+    } else if (data.type === 'PLAYER_STATE') {
+      if (this.onPlayerUpdated && data.peerId !== this.myPeerId) {
+        const p = data.profile || { nickname: '플레이어', color: '#3b82f6' };
+        this.onPlayerUpdated(data.peerId, data.state, p.nickname, p.color);
+      }
+    } else if (data.type === 'PLAYER_LEFT') {
+      if (this.onPlayerLeft) this.onPlayerLeft(data.peerId);
     } else if (data.type === 'CHAT') {
       if (this.onChatMessage) this.onChatMessage(data.sender, data.text);
-    } else if (data.type === 'GAME_START') {
-      if (this.onGameStart) this.onGameStart(data.config);
-    } else if (data.type === 'GAME_STATE') {
-      if (this.onGameState) this.onGameState(data.state);
-    } else if (data.type === 'ROOM_FULL') {
-      alert('방 인원이 가득 찼습니다! (최대 4인)');
     }
   }
 
-  // Send input to Host (Client -> Host)
-  sendInput(input) {
+  // Send block modification
+  sendBlockChange(x, y, z, blockId) {
+    const data = { type: 'BLOCK_CHANGE', x, y, z, blockId };
     if (this.isHost) {
-      // Local host input handled directly
-      if (this.onPlayerAction) {
-        this.onPlayerAction(this.myPeerId, input);
-      }
+      this.broadcast(data);
     } else if (this.hostConnection && this.hostConnection.open) {
-      this.hostConnection.send({
-        type: 'PLAYER_INPUT',
-        input
-      });
+      this.hostConnection.send(data);
     }
   }
 
+  // Send local player position (throttled to 25fps)
+  sendPlayerState(state) {
+    const now = performance.now();
+    if (now - this.lastStateSent < 40) return; // 25 updates/sec
+    this.lastStateSent = now;
+
+    const myProfile = window.auth.currentUser || { nickname: '나', color: '#3b82f6' };
+    const data = {
+      type: 'PLAYER_STATE',
+      peerId: this.myPeerId,
+      state,
+      profile: { nickname: myProfile.nickname, color: myProfile.color }
+    };
+
+    if (this.isHost) {
+      this.broadcast(data);
+    } else if (this.hostConnection && this.hostConnection.open) {
+      this.hostConnection.send(data);
+    }
+  }
+
+  // Send Chat message
   sendChat(sender, text) {
     const data = { type: 'CHAT', sender, text };
     if (this.isHost) {
@@ -307,14 +270,28 @@ class NetworkManager {
     }
   }
 
-  // Broadcast to all clients (Host only)
-  broadcast(data) {
+  // Broadcast to peers (Host only)
+  broadcast(data, excludePeerId = null) {
     if (!this.isHost) return;
-    Object.values(this.connections).forEach((conn) => {
-      if (conn && conn.open) {
+    Object.entries(this.connections).forEach(([peerId, conn]) => {
+      if (peerId !== excludePeerId && conn && conn.open) {
         conn.send(data);
       }
     });
+  }
+
+  updatePlayerCountBadge() {
+    const badge = document.getElementById('hud-players-count');
+    if (badge) {
+      const count = Object.keys(this.players).length || 1;
+      badge.innerText = `👥 접속자: ${count}명`;
+    }
+  }
+}
+
+function conn_send(conn, data) {
+  if (conn && conn.open) {
+    conn.send(data);
   }
 }
 
