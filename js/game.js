@@ -444,21 +444,40 @@ class GameEngine {
           if (window.sounds) window.sounds.playHit();
           this.createSpark(p1.x + nx * p1.radius, p1.y + ny * p1.radius);
 
-          // Bomb Transfer!
+          // Bomb Transfer with Immunity & Knockback!
           if (this.mode === 'bomb') {
+            const transferCooldown = 1.5; // 1.5 seconds immunity
             if (p1.hasBomb && p2.invincible <= 0) {
               p1.hasBomb = false;
               p2.hasBomb = true;
-              p2.invincible = 1.0;
+              p1.invincible = transferCooldown; // Former bomber gets immunity!
+              p2.invincible = 0.5; // Brief buffer for new bomber
               this.currentBomberId = p2.id;
-              this.addFloatingText(p2.x, p2.y - 30, '폭탄 전달!', '#ffea00');
+              
+              // Strong impulse to separate them immediately!
+              p1.vx -= nx * 18;
+              p1.vy -= ny * 18;
+              p2.vx += nx * 18;
+              p2.vy += ny * 18;
+
+              this.addFloatingText(p1.x, p1.y - 30, '🛡️ 탈출 성공!', '#00ff88', 22);
+              this.addFloatingText(p2.x, p2.y - 30, '💣 폭탄 전달!', '#ffea00', 26);
               if (window.sounds) window.sounds.playItem();
             } else if (p2.hasBomb && p1.invincible <= 0) {
               p2.hasBomb = false;
               p1.hasBomb = true;
-              p1.invincible = 1.0;
+              p2.invincible = transferCooldown; // Former bomber gets immunity!
+              p1.invincible = 0.5; // Brief buffer for new bomber
               this.currentBomberId = p1.id;
-              this.addFloatingText(p1.x, p1.y - 30, '폭탄 전달!', '#ffea00');
+
+              // Strong impulse to separate them immediately!
+              p1.vx -= nx * 18;
+              p1.vy -= ny * 18;
+              p2.vx += nx * 18;
+              p2.vy += ny * 18;
+
+              this.addFloatingText(p2.x, p2.y - 30, '🛡️ 탈출 성공!', '#00ff88', 22);
+              this.addFloatingText(p1.x, p1.y - 30, '💣 폭탄 전달!', '#ffea00', 26);
               if (window.sounds) window.sounds.playItem();
             }
           }
@@ -777,6 +796,20 @@ class GameEngine {
         ctx.shadowColor = '#ff0055';
         ctx.shadowBlur = 20;
         ctx.stroke();
+      }
+
+      // Invincible / Immune Shield Ring (Just passed the bomb)
+      if (p.invincible > 0) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius + 6, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#00ff88';
+        ctx.shadowBlur = 15;
+        ctx.stroke();
+        if (Math.floor(performance.now() * 0.02) % 2 === 0) {
+          ctx.globalAlpha = 0.7;
+        }
       }
 
       // Player Body
