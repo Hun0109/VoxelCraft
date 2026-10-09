@@ -14,6 +14,9 @@ class GameEngine {
     this.roundTime = 0;
     this.bombTimer = 15;
     this.currentBomberId = null;
+    this.lastBomberId = null;
+    this.lastBomberImmunityTimer = 0;
+    this.bombTransferCooldown = 0;
     this.roundWinner = null;
     this.matchWinner = null;
     this.screenShake = 0;
@@ -127,6 +130,9 @@ class GameEngine {
     this.particles = [];
     this.floatingTexts = [];
     this.shrinkRadius = 360;
+    this.bombTransferCooldown = 0;
+    this.lastBomberId = null;
+    this.lastBomberImmunityTimer = 0;
 
     // Reset positions and state
     const spawns = [
@@ -295,8 +301,18 @@ class GameEngine {
       this.shrinkRadius = Math.max(160, this.shrinkRadius - dt * 3.5);
     }
 
-    // Bomb Timer
+    // Bomb Timer & Transfer Lock Decay
     if (this.mode === 'bomb') {
+      if (this.bombTransferCooldown > 0) {
+        this.bombTransferCooldown -= dt;
+      }
+      if (this.lastBomberImmunityTimer > 0) {
+        this.lastBomberImmunityTimer -= dt;
+        if (this.lastBomberImmunityTimer <= 0) {
+          this.lastBomberId = null;
+        }
+      }
+
       const alivePlayers = this.players.filter((p) => p.alive);
       if (alivePlayers.length > 1) {
         this.bombTimer -= dt;
@@ -444,40 +460,34 @@ class GameEngine {
           if (window.sounds) window.sounds.playHit();
           this.createSpark(p1.x + nx * p1.radius, p1.y + ny * p1.radius);
 
-          // Bomb Transfer with Immunity & Knockback!
+          // Bomb Transfer with Absolute Global Lock & Immunity!
           if (this.mode === 'bomb') {
-            const transferCooldown = 1.5; // 1.5 seconds immunity
-            if (p1.hasBomb && p2.invincible <= 0) {
-              p1.hasBomb = false;
-              p2.hasBomb = true;
-              p1.invincible = transferCooldown; // Former bomber gets immunity!
-              p2.invincible = 0.5; // Brief buffer for new bomber
-              this.currentBomberId = p2.id;
-              
-              // Strong impulse to separate them immediately!
-              p1.vx -= nx * 18;
-              p1.vy -= ny * 18;
-              p2.vx += nx * 18;
-              p2.vy += ny * 18;
+            let source = null;
+            let target = null;
+            if (p1.hasBomb && !p2.hasBomb) { source = p1; target = p2; }
+            else if (p2.hasBomb && !p1.hasBomb) { source = p2; target = p1; }
 
-              this.addFloatingText(p1.x, p1.y - 30, '🛡️ 탈출 성공!', '#00ff88', 22);
-              this.addFloatingText(p2.x, p2.y - 30, '💣 폭탄 전달!', '#ffea00', 26);
-              if (window.sounds) window.sounds.playItem();
-            } else if (p2.hasBomb && p1.invincible <= 0) {
-              p2.hasBomb = false;
-              p1.hasBomb = true;
-              p2.invincible = transferCooldown; // Former bomber gets immunity!
-              p1.invincible = 0.5; // Brief buffer for new bomber
-              this.currentBomberId = p1.id;
+            // 폭탄 전달 필수 조건:
+            // 1. 글로벌 전달 쿨다운이 0이어야 함 (2.0초간 전달 금지)
+            // 2. 대상(target)이 직전 소지자(lastBomberId)가 아니어야 함 (3.5초 절대 면역)
+            // 3. 대상의 개별 무적 시간(invincible)이 0이어야 함
+            if (source && target && this.bombTransferCooldown <= 0 && target.id !== this.lastBomberId && target.invincible <= 0) {
+              source.hasBomb = false;
+              target.hasBomb = true;
+              this.currentBomberId = target.id;
+              this.lastBomberId = source.id;
+              this.lastBomberImmunityTimer = 3.5; // 방금 넘긴 사람: 3.5초간 절대 면역!
+              this.bombTransferCooldown = 2.0;    // 전체 폭탄: 2.0초간 전달 잠금!
+              source.invincible = 3.5;            // 시각적 쉴드 3.5초
 
-              // Strong impulse to separate them immediately!
-              p1.vx -= nx * 18;
-              p1.vy -= ny * 18;
-              p2.vx += nx * 18;
-              p2.vy += ny * 18;
+              // 초강력 반발 넉백 (충돌 반대 방향으로 멀리 튕김)
+              source.vx -= nx * 22;
+              source.vy -= ny * 22;
+              target.vx += nx * 22;
+              target.vy += ny * 22;
 
-              this.addFloatingText(p2.x, p2.y - 30, '🛡️ 탈출 성공!', '#00ff88', 22);
-              this.addFloatingText(p1.x, p1.y - 30, '💣 폭탄 전달!', '#ffea00', 26);
+              this.addFloatingText(source.x, source.y - 30, '🛡️ 탈출! (3.5초 무적)', '#00ff88', 24);
+              this.addFloatingText(target.x, target.y - 30, '💣 폭탄 부착! (2초 잠금)', '#ff0055', 26);
               if (window.sounds) window.sounds.playItem();
             }
           }
@@ -560,6 +570,8 @@ class GameEngine {
     return {
       mode: this.mode,
       bombTimer: this.bombTimer,
+      bombTransferCooldown: this.bombTransferCooldown,
+      lastBomberId: this.lastBomberId,
       shrinkRadius: this.shrinkRadius,
       players: this.players.map((p) => ({
         id: p.id,
@@ -569,6 +581,7 @@ class GameEngine {
         vy: p.vy,
         alive: p.alive,
         hasBomb: p.hasBomb,
+        invincible: p.invincible,
         score: p.score,
         emoji: p.emoji,
         emojiTimer: p.emojiTimer,
@@ -585,6 +598,8 @@ class GameEngine {
   applyState(state) {
     this.mode = state.mode;
     this.bombTimer = state.bombTimer;
+    this.bombTransferCooldown = state.bombTransferCooldown || 0;
+    this.lastBomberId = state.lastBomberId || null;
     this.shrinkRadius = state.shrinkRadius;
     this.items = state.items || [];
     
@@ -597,6 +612,7 @@ class GameEngine {
         p.y = sp.y;
         p.alive = sp.alive;
         p.hasBomb = sp.hasBomb;
+        p.invincible = sp.invincible || 0;
         p.score = sp.score;
         p.emoji = sp.emoji;
         p.emojiTimer = sp.emojiTimer;
@@ -852,6 +868,15 @@ class GameEngine {
         ctx.textAlign = 'center';
         const bounce = Math.abs(Math.sin(performance.now() * 0.01)) * 6;
         ctx.fillText('💣', p.x, p.y - p.radius - 12 - bounce);
+
+        if (this.bombTransferCooldown > 0) {
+          ctx.font = 'bold 12px Pretendard, sans-serif';
+          ctx.fillStyle = '#ffea00';
+          ctx.shadowColor = '#000000';
+          ctx.shadowBlur = 6;
+          ctx.fillText(`🔒 쿨다운 ${this.bombTransferCooldown.toFixed(1)}s`, p.x, p.y - p.radius - 36);
+          ctx.shadowBlur = 0;
+        }
       }
 
       // Nickname & Score
